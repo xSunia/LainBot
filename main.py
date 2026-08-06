@@ -334,12 +334,12 @@ async def main():
     if not token:
         print("❌ DISCORD_TOKEN env var is missing!", flush=True)
         return
+    asyncio.get_running_loop().create_task(newspaper_loop())
     async with bot:
         await bot.start(token)
 
 if __name__ == "__main__":
     keep_alive()
-    bot.loop.create_task(newspaper_loop())
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
