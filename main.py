@@ -18,6 +18,7 @@ except ImportError:
 # Configuration
 # ==========================================
 OWNER_ID = int(os.environ.get("OWNER_ID", "917071733658386543"))
+BASE = os.path.dirname(os.path.abspath(__file__))
 
 # ==========================================
 # Keep-alive web server (Render free tier)
@@ -47,6 +48,12 @@ YDL_OPTS = {
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
+    "retries": 3,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["tv", "web_embedded", "android_vr", "ios"],
+        }
+    },
 }
 
 FFMPEG_OPTS = {
@@ -61,18 +68,26 @@ volume = {}      # guild_id -> percent (default 100)
 # Helpers
 # ==========================================
 def _search_sync(query):
-    with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+    opts = dict(YDL_OPTS)
+    cookies_env = os.environ.get("YOUTUBE_COOKIES")
+    if cookies_env:
+        cookie_path = os.path.join(BASE, ".cookies.txt")
+        with open(cookie_path, "w", encoding="utf-8") as fh:
+            fh.write(cookies_env)
+        opts["cookiefile"] = cookie_path
+    with yt_dlp.YoutubeDL(opts) as ydl:
         try:
             if query.startswith(("http://", "https://")):
                 info = ydl.extract_info(query, download=False)
             else:
                 info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-        except Exception:
-            return None
+        except Exception as e:
+            print(f"⚠️ yt-dlp error: {e}", flush=True)
+            return None, str(e)[:300]
         if "entries" in info:
             info = info["entries"][0]
         if not info or not info.get("url"):
-            return None
+            return None, "No audio stream found for that video."
         seconds = info.get("duration") or 0
         m, s = divmod(int(seconds), 60)
         h, m = divmod(m, 60)
@@ -81,7 +96,7 @@ def _search_sync(query):
             "title": info.get("title", "Unknown"),
             "url": info.get("url"),
             "duration": dur,
-        }
+        }, None
 
 async def _search(query):
     return await asyncio.get_running_loop().run_in_executor(None, _search_sync, query)
@@ -143,9 +158,9 @@ async def play(ctx, *, query):
         return await ctx.send("🔇 You must be in a voice channel first.")
     if ctx.voice_client is None:
         await ctx.author.voice.channel.connect()
-    entry = await _search(query)
+    entry, err = await _search(query)
     if entry is None:
-        return await ctx.send("❌ Couldn't find anything for that.")
+        return await ctx.send(f"❌ Couldn't find anything. ({err})")
     q = queue.setdefault(ctx.guild.id, [])
     q.append(entry)
     vc = ctx.voice_client
